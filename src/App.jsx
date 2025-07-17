@@ -267,7 +267,7 @@ const BusScheduleConverter = () => {
             // Create hotel departure entry
             const hotelEntry = {
               'Time': formatTime(departureTime),
-              'Location': 'WCH Arena - Athletes Entrance', // Destination
+              'Location': cleanHotelName, // Departure hotel name
               'License Plate': currentBusInfo.licensePlate || '',
               'Driver': currentBusInfo.driver || '',
               'Bus No': currentBusInfo.busNo || ''
@@ -436,10 +436,10 @@ const BusScheduleConverter = () => {
     
     const wb = XLSX.utils.book_new();
     
-    // Create sheets with the exact format requested
-    const hotelDeparturesWs = XLSX.utils.json_to_sheet(results.hotelDepartures);
-    const wchDeparturesWs = XLSX.utils.json_to_sheet(results.wchDepartures);
-    const combinedScheduleWs = XLSX.utils.json_to_sheet(results.combinedSchedule);
+    // Create sheets with headers and data separately to avoid first row being cut off
+    const hotelDeparturesWs = XLSX.utils.json_to_sheet(results.hotelDepartures, { header: ['Time', 'Location', 'License Plate', 'Driver', 'Bus No'] });
+    const wchDeparturesWs = XLSX.utils.json_to_sheet(results.wchDepartures, { header: ['Time', 'Location', 'License Plate', 'Driver', 'Bus No'] });
+    const combinedScheduleWs = XLSX.utils.json_to_sheet(results.combinedSchedule, { header: ['Time', 'Location', 'License Plate', 'Driver', 'Bus No', 'Departure Type'] });
     
     // Add sheets to workbook
     XLSX.utils.book_append_sheet(wb, hotelDeparturesWs, 'Hotel Departures');
