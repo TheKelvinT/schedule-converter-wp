@@ -74,12 +74,7 @@ const BusScheduleConverter = () => {
     });
   };
 
-  const addMinutes = (date, minutes) => {
-    if (!date) return null;
-    const newDate = new Date(date);
-    newDate.setMinutes(newDate.getMinutes() + minutes);
-    return newDate;
-  };
+
 
   const processScheduleData = (workbook) => {
     let hotelDepartures = [];
@@ -269,46 +264,39 @@ const BusScheduleConverter = () => {
               .replace(/\(Drop.*?Only\)/gi, '')
               .trim();
             
-            // Create hotel departure entry - use tab name as destination
+            // Create hotel departure entry
             const hotelEntry = {
               'Time': formatTime(departureTime),
-              'Location': sheetName, // Destination (tab name)
+              'Location': 'WCH Arena - Athletes Entrance', // Destination
               'License Plate': currentBusInfo.licensePlate || '',
               'Driver': currentBusInfo.driver || '',
               'Bus No': currentBusInfo.busNo || ''
             };
             
             sheetHotelDepartures.push(hotelEntry);
-            console.log(`✅ Added hotel departure: ${cleanHotelName} → ${sheetName} at ${formatTime(departureTime)}`);
+            console.log(`✅ Added hotel departure: ${cleanHotelName} at ${formatTime(departureTime)}`);
           });
           
-          // Create WCH departure entries (return journey) - one for each hotel as destination
+          // Create WCH departure entry (using actual WCH departure time)
           if (validWchTime) {
-            const returnDeparture = addMinutes(validWchTime, 60); // 1 hour at venue
+            // For WCH departures, we need to determine the destination
+            // Since buses loop between hotels, the destination would be the hotels
+            // For simplicity, we'll use the first hotel name from the route as destination
+            const availableHotels = Object.keys(times);
+            const firstHotelName = availableHotels.length > 0 ? 
+              availableHotels[0].replace(/\(.*?\)/g, '').replace(/上人|下人/g, '').trim() : 
+              'Hotels';
             
-            if (returnDeparture) {
-              // Create one WCH departure entry for each hotel as destination
-              Object.keys(times).forEach(hotelName => {
-                const cleanHotelName = hotelName
-                  .replace(/\(Pickup Only\)/gi, '')
-                  .replace(/\(Pick.*?Only\)/gi, '')
-                  .replace(/上人/g, '')
-                  .replace(/下人/g, '')
-                  .replace(/\(Drop.*?Only\)/gi, '')
-                  .trim();
-                
-                const wchEntry = {
-                  'Time': formatTime(returnDeparture),
-                  'Location': cleanHotelName, // Destination (hotel name)
-                  'License Plate': currentBusInfo.licensePlate || '',
-                  'Driver': currentBusInfo.driver || '',
-                  'Bus No': currentBusInfo.busNo || ''
-                };
-                
-                sheetWchDepartures.push(wchEntry);
-                console.log(`✅ Added WCH departure: WCH Arena → ${cleanHotelName} at ${formatTime(returnDeparture)}`);
-              });
-            }
+            const wchEntry = {
+              'Time': formatTime(validWchTime), // Use actual WCH time, not calculated
+              'Location': firstHotelName, // Destination (hotels)
+              'License Plate': currentBusInfo.licensePlate || '',
+              'Driver': currentBusInfo.driver || '',
+              'Bus No': currentBusInfo.busNo || ''
+            };
+            
+            sheetWchDepartures.push(wchEntry);
+            console.log(`✅ Added WCH departure: at ${formatTime(validWchTime)}`);
           }
         }
         
@@ -529,7 +517,7 @@ const BusScheduleConverter = () => {
                   onChange={handleFileUpload}
                 />
               </label>
-            </div>
+      </div>
             {file && (
               <p className="text-sm text-gray-600 mt-2">
                 Selected: {file.name}
@@ -606,7 +594,7 @@ const BusScheduleConverter = () => {
                 <div className="bg-white p-4 rounded-lg">
                   <h4 className="font-medium text-gray-700 mb-2">WCH Departures</h4>
                   <p className="text-2xl font-bold text-green-600">{results.wchDepartures.length}</p>
-                  <p className="text-sm text-gray-500">arrival entries</p>
+                  <p className="text-sm text-gray-500">departure entries</p>
                 </div>
               </div>
 
