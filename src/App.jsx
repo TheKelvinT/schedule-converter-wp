@@ -231,48 +231,71 @@ const BusScheduleConverter = () => {
         let headerRow = null;
         let headerRowIndex = -1;
         let timeColumns = []; // [{ name: "Hotel Name", colIndex: 2 }]
-        let wchColIndex = -1;
+        let destinationColIndex = -1;
         let busNoColIndex = -1;
         let busDetailsColIndex = -1;
 
-        // Look for header row (contains hotel names and "WCH")
+        // Look for header row (contains hotel names and destination)
         for (let i = 0; i < Math.min(10, data.length); i++) {
           const row = data[i];
           if (!row) continue;
           
-          let foundWch = false;
+          console.log(`🔍 Checking row ${i} for headers:`, row.slice(0, 10)); // Show first 10 columns
+          
+          let foundDestination = false;
           let foundHotels = 0;
           
           for (let j = 0; j < row.length; j++) {
             const cellValue = String(row[j] || '').toLowerCase();
+            console.log(`  Column ${j}: "${row[j]}" -> "${cellValue}"`);
             
-            if (cellValue.includes('wch') || cellValue.includes('arena')) {
-              wchColIndex = j;
-              foundWch = true;
+            if (cellValue.includes('wch') || cellValue.includes('arena') || 
+                cellValue.includes('sentosa') || cellValue.includes('beach') ||
+                cellValue.includes('palawan') || cellValue.includes('destination')) {
+              destinationColIndex = j;
+              foundDestination = true;
+              console.log(`  ✅ Found destination column at ${j}`);
             } else if (cellValue.includes('hotel') || cellValue.includes('amara') || 
                       cellValue.includes('mercure') || cellValue.includes('holiday') ||
                       cellValue.includes('katong') || cellValue.includes('singapore') ||
                       cellValue.includes('ibis') || cellValue.includes('bencoolen') ||
                       cellValue.includes('orchard') || cellValue.includes('copthorne') ||
-                      cellValue.includes('furama')) {
+                      cellValue.includes('furama') || cellValue.includes('aloft') ||
+                      cellValue.includes('dorsett') || cellValue.includes('michael')) {
               timeColumns.push({
                 name: String(row[j]).trim(),
                 colIndex: j
               });
               foundHotels++;
-            } else if (cellValue.includes('bus') && cellValue.includes('no')) {
+              console.log(`  ✅ Found hotel column at ${j}: ${String(row[j]).trim()}`);
+            } else if ((cellValue.includes('bus') && cellValue.includes('no')) || 
+                      cellValue === 'bus no' || cellValue.includes('bus number')) {
               busNoColIndex = j;
-            } else if (cellValue.includes('bus') && cellValue.includes('detail')) {
+              console.log(`  ✅ Found bus no column at ${j}`);
+            } else if ((cellValue.includes('bus') && cellValue.includes('detail')) ||
+                      cellValue === 'bus details' || cellValue.includes('driver') ||
+                      cellValue.includes('license') || cellValue.includes('plate')) {
               busDetailsColIndex = j;
+              console.log(`  ✅ Found bus details column at ${j}`);
             }
           }
           
-          if (foundWch && foundHotels >= 1) {
+          console.log(`Row ${i} summary: foundDestination=${foundDestination}, foundHotels=${foundHotels}`);
+          
+          // Relaxed requirement: Just need hotels (1+ if has destination, 2+ if no destination)
+          // OR if we find common header patterns
+          const hasCommonHeaders = row.some(cell => {
+            const cellStr = String(cell || '').toLowerCase();
+            return cellStr.includes('departure time') || cellStr.includes('pickup') || cellStr.includes('drop');
+          });
+          
+          if ((foundDestination && foundHotels >= 1) || (!foundDestination && foundHotels >= 2) || 
+              (foundHotels >= 1 && hasCommonHeaders)) {
             headerRow = row;
             headerRowIndex = i;
             console.log(`Found header at row ${i}:`);
             console.log('Time columns detected:', timeColumns.map(col => `"${col.name}" at index ${col.colIndex}`));
-            console.log('WCH column:', wchColIndex);
+            console.log('Destination column:', destinationColIndex);
             console.log('Bus No column:', busNoColIndex);
             console.log('Bus Details column:', busDetailsColIndex);
             
@@ -321,10 +344,10 @@ const BusScheduleConverter = () => {
             }
           });
           
-          // Extract WCH time
-          const rawWchValue = wchColIndex !== -1 ? row[wchColIndex] : null;
-          const wchTime = rawWchValue ? parseTime(rawWchValue) : null;
-          const validWchTime = wchTime && wchTime.getHours() >= 5 ? wchTime : null;
+          // Extract destination time
+          const rawDestinationValue = destinationColIndex !== -1 ? row[destinationColIndex] : null;
+          const destinationTime = rawDestinationValue ? parseTime(rawDestinationValue) : null;
+          const validDestinationTime = destinationTime && destinationTime.getHours() >= 5 ? destinationTime : null;
           
           if (!hasValidTimes) {
             continue;
@@ -335,18 +358,23 @@ const BusScheduleConverter = () => {
           let driver = '';
           let licensePlate = '';
           
+          console.log(`🚌 Bus extraction - Row ${rowIndex}: busNoCol=${busNoColIndex}, busDetailsCol=${busDetailsColIndex}`);
+          
           // Try current row first
           if (busNoColIndex !== -1 && row[busNoColIndex]) {
             busNo = String(row[busNoColIndex]).trim();
+            console.log(`  Found bus no: "${busNo}"`);
           }
           
           if (busDetailsColIndex !== -1 && row[busDetailsColIndex]) {
             const details = String(row[busDetailsColIndex]).trim();
+            console.log(`  Found bus details: "${details}"`);
             if (details && details !== '') {
               // Parse driver and license from details
               const result = parseDriverAndLicense(details);
               driver = result.driver;
               licensePlate = result.licensePlate;
+              console.log(`  Parsed - Driver: "${driver}", License: "${licensePlate}"`);
             }
           }
           
@@ -414,9 +442,9 @@ const BusScheduleConverter = () => {
             }
           });
           
-          // Create WCH departure entry (using actual WCH departure time)
-          if (validWchTime) {
-            // For WCH departures, show all hotels in the route as destinations
+          // Create destination departure entry (using actual departure time)
+          if (validDestinationTime) {
+            // For destination departures, show all hotels in the route as destinations
             const availableHotels = Object.keys(times);
             const cleanHotelNames = availableHotels.map(name => 
               name.replace(/\(.*?\)/g, '').replace(/上人|下人/g, '').trim()
@@ -426,16 +454,16 @@ const BusScheduleConverter = () => {
               cleanHotelNames.join(' & ') : 
               'Hotels';
             
-            const wchEntry = {
-              'Time': formatTime(validWchTime), // Use actual WCH time, not calculated
+            const destinationEntry = {
+              'Time': formatTime(validDestinationTime), // Use actual destination time, not calculated
               'Location': destinationText, // Multiple destinations
               'License Plate': currentBusInfo.licensePlate || '',
               'Driver': currentBusInfo.driver || '',
               'Bus No': currentBusInfo.busNo || ''
             };
             
-            sheetWchDepartures.push(wchEntry);
-            console.log(`✅ Added WCH departure: at ${formatTime(validWchTime)} to ${destinationText}`);
+            sheetWchDepartures.push(destinationEntry);
+            console.log(`✅ Added destination departure: at ${formatTime(validDestinationTime)} to ${destinationText}`);
           }
         }
         
