@@ -25,26 +25,33 @@ const BusScheduleConverter = () => {
     if (!timeStr) return null;
     
     const timeString = String(timeStr).trim();
-    console.log('Parsing time:', timeString);
     
-    // Handle various time formats
-    // Format 1: "7:00", "07:00", "7.00", "07.00"
-    let timeMatch = timeString.match(/^(\d{1,2})[:.:](\d{2})$/);
-    if (timeMatch) {
-      const hours = parseInt(timeMatch[1]);
-      const minutes = parseInt(timeMatch[2]);
-      console.log(`Parsed time: ${hours}:${minutes}`);
-      return new Date(2023, 0, 1, hours, minutes);
-    }
-    
-    // Format 2: Excel serial number (if it's a number)
+    // PRIORITY 1: Excel serial number (MUST BE FIRST to avoid regex conflicts)
     const numValue = parseFloat(timeString);
     if (!isNaN(numValue) && numValue > 0 && numValue < 1) {
       // Excel time serial number (fraction of a day)
       const totalMinutes = Math.round(numValue * 24 * 60);
       const hours = Math.floor(totalMinutes / 60);
       const minutes = totalMinutes % 60;
-      console.log(`Parsed Excel time: ${hours}:${minutes}`);
+      
+      console.log(`✅ Excel serial: ${numValue} -> ${hours}:${String(minutes).padStart(2, '0')}`);
+      return new Date(2023, 0, 1, hours, minutes);
+    }
+    
+    // PRIORITY 2: Handle single digit hours (e.g., "6" for 6:00)
+    if (timeString.match(/^[5-9]$/) || timeString.match(/^1[0-9]$/) || timeString.match(/^2[0-3]$/) ) {
+      const hours = parseInt(timeString);
+      if (hours >= 5 && hours <= 23) {
+        console.log(`✅ Single digit hour: ${hours}:00`);
+        return new Date(2023, 0, 1, hours, 0);
+      }
+    }
+    
+    // PRIORITY 3: Colon formats "7:00", "07:00", "7.00", "07.00"
+    let timeMatch = timeString.match(/^(\d{1,2})[:.:](\d{2})$/);
+    if (timeMatch) {
+      const hours = parseInt(timeMatch[1]);
+      const minutes = parseInt(timeMatch[2]);
       return new Date(2023, 0, 1, hours, minutes);
     }
     
@@ -55,15 +62,92 @@ const BusScheduleConverter = () => {
         const hours = Math.floor(timeNum / 100);
         const minutes = timeNum % 100;
         if (minutes < 60) {
-          console.log(`Parsed numeric time: ${hours}:${minutes}`);
           return new Date(2023, 0, 1, hours, minutes);
         }
       }
     }
     
-    console.log('Could not parse time:', timeString);
     return null;
   };
+
+  const testTimeValidation = (testValues) => {
+    const results = testValues.map(value => {
+      const timeString = String(value).trim();
+      const result = {
+        input: value,
+        inputType: typeof value,
+        stringValue: timeString,
+        parsed: null,
+        passesFilter: false,
+        formatUsed: null,
+        details: {}
+      };
+
+      // Test Format 1: "7:00", "07:00", "7.00", "07.00"
+      let timeMatch = timeString.match(/^(\d{1,2})[:.:](\d{2})$/);
+      if (timeMatch) {
+        const hours = parseInt(timeMatch[1]);
+        const minutes = parseInt(timeMatch[2]);
+        result.parsed = `${hours}:${String(minutes).padStart(2, '0')}`;
+        result.passesFilter = hours >= 5;
+        result.formatUsed = 'Format1_ColonTime';
+        result.details = { hours, minutes, regex: 'matched' };
+        return result;
+      }
+
+      // Test Format 2: Excel serial number
+      const numValue = parseFloat(timeString);
+      if (!isNaN(numValue) && numValue > 0 && numValue < 1) {
+        const totalMinutes = Math.round(numValue * 24 * 60);
+        const hours = Math.floor(totalMinutes / 60);
+        const minutes = totalMinutes % 60;
+        result.parsed = `${hours}:${String(minutes).padStart(2, '0')}`;
+        result.passesFilter = hours >= 5;
+        result.formatUsed = 'Format2_ExcelSerial';
+        result.details = { serialNumber: numValue, totalMinutes, hours, minutes };
+        return result;
+      }
+
+      // Test Format 3: Numeric like "600", "700"
+      if (timeString.match(/^\d{3,4}$/)) {
+        const timeNum = parseInt(timeString);
+        if (timeNum >= 600 && timeNum <= 2359) {
+          const hours = Math.floor(timeNum / 100);
+          const minutes = timeNum % 100;
+          if (minutes < 60) {
+            result.parsed = `${hours}:${String(minutes).padStart(2, '0')}`;
+            result.passesFilter = hours >= 5;
+            result.formatUsed = 'Format3_Numeric';
+            result.details = { numericValue: timeNum, hours, minutes };
+            return result;
+          } else {
+            result.formatUsed = 'Format3_Numeric_InvalidMinutes';
+            result.details = { numericValue: timeNum, invalidMinutes: minutes };
+          }
+        } else {
+          result.formatUsed = 'Format3_Numeric_OutOfRange';
+          result.details = { numericValue: timeNum, range: '600-2359' };
+        }
+        return result;
+      }
+
+      result.formatUsed = 'NoMatch';
+      result.details = { 
+        isNumber: !isNaN(numValue),
+        numberValue: numValue,
+        regexTests: {
+          colonFormat: !!timeString.match(/^(\d{1,2})[:.:](\d{2})$/),
+          numericFormat: !!timeString.match(/^\d{3,4}$/)
+        }
+      };
+      return result;
+    });
+
+    return results;
+  };
+
+  // Expose the test function globally for debugging
+  window.testTimeValidation = testTimeValidation;
 
   const formatTime = (date) => {
     if (!date) return '';
@@ -74,6 +158,43 @@ const BusScheduleConverter = () => {
     });
   };
 
+  // Simplified debugging - only for missing 6:00
+  const debugAllData = (data, timeColumns, headerRowIndex) => {
+    console.log('\n🔍 LOOKING FOR MISSING 6:00 ENTRY...');
+    
+    // Only check Orchard Hotel columns for 6:00 values
+    for (let i = headerRowIndex + 1; i < Math.min(headerRowIndex + 10, data.length); i++) {
+      const row = data[i];
+      if (!row) continue;
+      
+      timeColumns.forEach(col => {
+        if (col.name.toLowerCase().includes('orchard')) {
+          const rawValue = row[col.colIndex];
+          if (rawValue !== undefined && rawValue !== null && rawValue !== '') {
+            const str = String(rawValue).trim();
+            
+                         // Only log if it looks like it could be 6:00
+             if (str === '6' || str === '6:00' || str === '6.00' || str === '600' || 
+                 parseFloat(str) === 0.25 || str.includes('6:')) {
+               console.log(`🎯 FOUND POTENTIAL 6:00 in Row ${i}, ${col.name}: "${rawValue}" (type: ${typeof rawValue})`);
+               
+               // Manual calculation check
+               if (parseFloat(str) === 0.25) {
+                 const totalMins = Math.round(0.25 * 24 * 60);
+                 const hrs = Math.floor(totalMins / 60);
+                 const mins = totalMins % 60;
+                 console.log(`   Manual calc: 0.25 * 24 * 60 = ${totalMins} mins = ${hrs}:${String(mins).padStart(2, '0')}`);
+               }
+               
+               const parsed = parseTime(rawValue);
+               console.log(`   Parsed as: ${parsed ? formatTime(parsed) : 'FAILED TO PARSE'}`);
+               console.log(`   Hours: ${parsed ? parsed.getHours() : 'N/A'}, Minutes: ${parsed ? parsed.getMinutes() : 'N/A'}`);
+             }
+          }
+        }
+      });
+    }
+  };
 
 
   const processScheduleData = (workbook) => {
@@ -130,7 +251,10 @@ const BusScheduleConverter = () => {
               foundWch = true;
             } else if (cellValue.includes('hotel') || cellValue.includes('amara') || 
                       cellValue.includes('mercure') || cellValue.includes('holiday') ||
-                      cellValue.includes('katong') || cellValue.includes('singapore')) {
+                      cellValue.includes('katong') || cellValue.includes('singapore') ||
+                      cellValue.includes('ibis') || cellValue.includes('bencoolen') ||
+                      cellValue.includes('orchard') || cellValue.includes('copthorne') ||
+                      cellValue.includes('furama')) {
               timeColumns.push({
                 name: String(row[j]).trim(),
                 colIndex: j
@@ -147,10 +271,14 @@ const BusScheduleConverter = () => {
             headerRow = row;
             headerRowIndex = i;
             console.log(`Found header at row ${i}:`);
-            console.log('Time columns:', timeColumns);
+            console.log('Time columns detected:', timeColumns.map(col => `"${col.name}" at index ${col.colIndex}`));
             console.log('WCH column:', wchColIndex);
             console.log('Bus No column:', busNoColIndex);
             console.log('Bus Details column:', busDetailsColIndex);
+            
+            // Call comprehensive debugging
+            debugAllData(data, timeColumns, headerRowIndex);
+            
             break;
           }
         }
@@ -172,14 +300,21 @@ const BusScheduleConverter = () => {
           const row = data[rowIndex];
           if (!row) continue;
           
-          console.log(`\nProcessing row ${rowIndex}:`, row);
+
           
           // Extract times for each hotel column
           const times = {};
           let hasValidTimes = false;
           
           timeColumns.forEach(col => {
-            const timeValue = parseTime(row[col.colIndex]);
+            const rawValue = row[col.colIndex];
+            const timeValue = parseTime(rawValue);
+            
+            // Only log 6:00 times when found
+            if (timeValue && timeValue.getHours() === 6 && timeValue.getMinutes() === 0) {
+              console.log(`🎯 FOUND 6:00! ${col.name}: "${rawValue}" -> ${formatTime(timeValue)}`);
+            }
+            
             if (timeValue && timeValue.getHours() >= 5) { // Filter 5am+
               times[col.name] = timeValue;
               hasValidTimes = true;
@@ -187,14 +322,11 @@ const BusScheduleConverter = () => {
           });
           
           // Extract WCH time
-          const wchTime = wchColIndex !== -1 ? parseTime(row[wchColIndex]) : null;
+          const rawWchValue = wchColIndex !== -1 ? row[wchColIndex] : null;
+          const wchTime = rawWchValue ? parseTime(rawWchValue) : null;
           const validWchTime = wchTime && wchTime.getHours() >= 5 ? wchTime : null;
           
-          console.log('Extracted times:', Object.keys(times).map(k => `${k}: ${formatTime(times[k])}`));
-          console.log('WCH time:', validWchTime ? formatTime(validWchTime) : 'none');
-          
-          if (!hasValidTimes || !validWchTime) {
-            console.log('No valid times, skipping row');
+          if (!hasValidTimes) {
             continue;
           }
           
@@ -275,28 +407,35 @@ const BusScheduleConverter = () => {
             
             sheetHotelDepartures.push(hotelEntry);
             console.log(`✅ Added hotel departure: ${cleanHotelName} at ${formatTime(departureTime)}`);
+            
+            // Special logging for 6:00 entries
+            if (departureTime.getHours() === 6 && departureTime.getMinutes() === 0) {
+              console.log(`🎯 ADDED 6:00 DEPARTURE! Hotel: ${cleanHotelName}, Driver: ${currentBusInfo.driver}, License: ${currentBusInfo.licensePlate}`);
+            }
           });
           
           // Create WCH departure entry (using actual WCH departure time)
           if (validWchTime) {
-            // For WCH departures, we need to determine the destination
-            // Since buses loop between hotels, the destination would be the hotels
-            // For simplicity, we'll use the first hotel name from the route as destination
+            // For WCH departures, show all hotels in the route as destinations
             const availableHotels = Object.keys(times);
-            const firstHotelName = availableHotels.length > 0 ? 
-              availableHotels[0].replace(/\(.*?\)/g, '').replace(/上人|下人/g, '').trim() : 
+            const cleanHotelNames = availableHotels.map(name => 
+              name.replace(/\(.*?\)/g, '').replace(/上人|下人/g, '').trim()
+            ).filter(name => name.length > 0);
+            
+            const destinationText = cleanHotelNames.length > 0 ? 
+              cleanHotelNames.join(' & ') : 
               'Hotels';
             
             const wchEntry = {
               'Time': formatTime(validWchTime), // Use actual WCH time, not calculated
-              'Location': firstHotelName, // Destination (hotels)
+              'Location': destinationText, // Multiple destinations
               'License Plate': currentBusInfo.licensePlate || '',
               'Driver': currentBusInfo.driver || '',
               'Bus No': currentBusInfo.busNo || ''
             };
             
             sheetWchDepartures.push(wchEntry);
-            console.log(`✅ Added WCH departure: at ${formatTime(validWchTime)}`);
+            console.log(`✅ Added WCH departure: at ${formatTime(validWchTime)} to ${destinationText}`);
           }
         }
         
