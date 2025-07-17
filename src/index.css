@@ -1,0 +1,7 @@
+@import "tailwindcss";
+
+/* Debug CSS to test if processing works */
+body {
+  margin: 0;
+  padding: 0;
+}
