@@ -25,6 +25,7 @@ const BusScheduleConverter = () => {
     if (!timeStr) return null;
     
     const timeString = String(timeStr).trim();
+    console.log(`🔍 parseTime called with: "${timeString}" (type: ${typeof timeStr})`);
     
     // PRIORITY 1: Excel serial number (MUST BE FIRST to avoid regex conflicts)
     const numValue = parseFloat(timeString);
@@ -39,34 +40,37 @@ const BusScheduleConverter = () => {
     }
     
     // PRIORITY 2: Handle single digit hours (e.g., "6" for 6:00)
-    if (timeString.match(/^[5-9]$/) || timeString.match(/^1[0-9]$/) || timeString.match(/^2[0-3]$/) ) {
+    if (timeString.match(/^[4-9]$/) || timeString.match(/^1[0-9]$/) || timeString.match(/^2[0-3]$/) ) {
       const hours = parseInt(timeString);
-      if (hours >= 5 && hours <= 23) {
+      if (hours >= 4 && hours <= 23) {
         console.log(`✅ Single digit hour: ${hours}:00`);
         return new Date(2023, 0, 1, hours, 0);
       }
     }
     
-    // PRIORITY 3: Colon formats "7:00", "07:00", "7.00", "07.00"
+    // PRIORITY 3: Colon formats "4:40", "07:00", "7.00", "07.00"
     let timeMatch = timeString.match(/^(\d{1,2})[:.:](\d{2})$/);
     if (timeMatch) {
       const hours = parseInt(timeMatch[1]);
       const minutes = parseInt(timeMatch[2]);
+      console.log(`✅ Colon format matched: ${hours}:${String(minutes).padStart(2, '0')}`);
       return new Date(2023, 0, 1, hours, minutes);
     }
     
-    // Format 3: Just numbers like "700" for "7:00"
+    // Format 3: Just numbers like "700" for "7:00" or "440" for "4:40"
     if (timeString.match(/^\d{3,4}$/)) {
       const timeNum = parseInt(timeString);
-      if (timeNum >= 600 && timeNum <= 2359) {
+      if (timeNum >= 400 && timeNum <= 2359) {
         const hours = Math.floor(timeNum / 100);
         const minutes = timeNum % 100;
         if (minutes < 60) {
+          console.log(`✅ Numeric format: ${timeNum} -> ${hours}:${String(minutes).padStart(2, '0')}`);
           return new Date(2023, 0, 1, hours, minutes);
         }
       }
     }
     
+    console.log(`❌ parseTime failed for: "${timeString}"`);
     return null;
   };
 
@@ -89,7 +93,7 @@ const BusScheduleConverter = () => {
         const hours = parseInt(timeMatch[1]);
         const minutes = parseInt(timeMatch[2]);
         result.parsed = `${hours}:${String(minutes).padStart(2, '0')}`;
-        result.passesFilter = hours >= 5;
+        result.passesFilter = hours >= 4;
         result.formatUsed = 'Format1_ColonTime';
         result.details = { hours, minutes, regex: 'matched' };
         return result;
@@ -102,7 +106,7 @@ const BusScheduleConverter = () => {
         const hours = Math.floor(totalMinutes / 60);
         const minutes = totalMinutes % 60;
         result.parsed = `${hours}:${String(minutes).padStart(2, '0')}`;
-        result.passesFilter = hours >= 5;
+        result.passesFilter = hours >= 4;
         result.formatUsed = 'Format2_ExcelSerial';
         result.details = { serialNumber: numValue, totalMinutes, hours, minutes };
         return result;
@@ -111,12 +115,12 @@ const BusScheduleConverter = () => {
       // Test Format 3: Numeric like "600", "700"
       if (timeString.match(/^\d{3,4}$/)) {
         const timeNum = parseInt(timeString);
-        if (timeNum >= 600 && timeNum <= 2359) {
+        if (timeNum >= 400 && timeNum <= 2359) {
           const hours = Math.floor(timeNum / 100);
           const minutes = timeNum % 100;
           if (minutes < 60) {
             result.parsed = `${hours}:${String(minutes).padStart(2, '0')}`;
-            result.passesFilter = hours >= 5;
+            result.passesFilter = hours >= 4;
             result.formatUsed = 'Format3_Numeric';
             result.details = { numericValue: timeNum, hours, minutes };
             return result;
@@ -126,7 +130,7 @@ const BusScheduleConverter = () => {
           }
         } else {
           result.formatUsed = 'Format3_Numeric_OutOfRange';
-          result.details = { numericValue: timeNum, range: '600-2359' };
+          result.details = { numericValue: timeNum, range: '400-2359' };
         }
         return result;
       }
@@ -338,7 +342,7 @@ const BusScheduleConverter = () => {
               console.log(`🎯 FOUND 6:00! ${col.name}: "${rawValue}" -> ${formatTime(timeValue)}`);
             }
             
-            if (timeValue && timeValue.getHours() >= 5) { // Filter 5am+
+            if (timeValue && timeValue.getHours() >= 4) { // Filter 4am+
               times[col.name] = timeValue;
               hasValidTimes = true;
             }
@@ -347,7 +351,7 @@ const BusScheduleConverter = () => {
           // Extract destination time
           const rawDestinationValue = destinationColIndex !== -1 ? row[destinationColIndex] : null;
           const destinationTime = rawDestinationValue ? parseTime(rawDestinationValue) : null;
-          const validDestinationTime = destinationTime && destinationTime.getHours() >= 5 ? destinationTime : null;
+          const validDestinationTime = destinationTime && destinationTime.getHours() >= 4 ? destinationTime : null;
           
           if (!hasValidTimes) {
             continue;
@@ -482,7 +486,7 @@ const BusScheduleConverter = () => {
         });
       });
 
-      // Sort function for time (5am to 4:59am cycle)
+      // Sort function for time (4am to 3:59am cycle)
       const sortByTime = (a, b) => {
         const timeA = a.Time || '00:00';
         const timeB = b.Time || '00:00';
@@ -490,17 +494,17 @@ const BusScheduleConverter = () => {
         const [hoursA, minsA] = timeA.split(':').map(Number);
         const [hoursB, minsB] = timeB.split(':').map(Number);
         
-        // Convert to minutes from 5am (5am = 0, 6am = 60, ... 4am = 1380, 4:59am = 1439)
-        const getMinutesFrom5am = (hours, minutes) => {
-          if (hours >= 5) {
-            return (hours - 5) * 60 + minutes;
+        // Convert to minutes from 4am (4am = 0, 5am = 60, ... 3am = 1380, 3:59am = 1439)
+        const getMinutesFrom4am = (hours, minutes) => {
+          if (hours >= 4) {
+            return (hours - 4) * 60 + minutes;
           } else {
-            return (hours + 19) * 60 + minutes; // 4am = 23 hours after 5am
+            return (hours + 20) * 60 + minutes; // 3am = 23 hours after 4am
           }
         };
         
-        const totalMinsA = getMinutesFrom5am(hoursA, minsA);
-        const totalMinsB = getMinutesFrom5am(hoursB, minsB);
+        const totalMinsA = getMinutesFrom4am(hoursA, minsA);
+        const totalMinsB = getMinutesFrom4am(hoursB, minsB);
         
         return totalMinsA - totalMinsB;
       };
