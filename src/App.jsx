@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { Upload, Download, FileSpreadsheet, AlertCircle, Bus, Clock, Eye, ChevronDown, ChevronUp } from 'lucide-react';
 import * as XLSX from 'xlsx';
@@ -19,6 +20,26 @@ const BusScheduleConverter = () => {
       setPreviewData(null);
       setShowPreview(false);
     }
+  };
+
+  // Helper function to determine if a column should be ignored
+  const isColumnToIgnore = (columnName) => {
+    const name = columnName.toLowerCase();
+    
+    // Ignore AQC locations
+    if (name.includes('aqc')) {
+      return true;
+    }
+    
+    // Ignore hotel columns that are drop-off only (下人 means drop-off)
+    if (name.includes('下人')) {
+      return true;
+    }
+    
+    // Add other ignore patterns here if needed
+    // Example: if (name.includes('other_pattern_to_ignore')) return true;
+    
+    return false;
   };
 
   const parseTime = (timeStr) => {
@@ -266,12 +287,19 @@ const BusScheduleConverter = () => {
                       cellValue.includes('orchard') || cellValue.includes('copthorne') ||
                       cellValue.includes('furama') || cellValue.includes('aloft') ||
                       cellValue.includes('dorsett') || cellValue.includes('michael')) {
-              timeColumns.push({
-                name: String(row[j]).trim(),
-                colIndex: j
-              });
-              foundHotels++;
-              console.log(`  ✅ Found hotel column at ${j}: ${String(row[j]).trim()}`);
+              
+              // Check if this should be ignored
+              const shouldIgnore = isColumnToIgnore(String(row[j]).trim());
+              if (!shouldIgnore) {
+                timeColumns.push({
+                  name: String(row[j]).trim(),
+                  colIndex: j
+                });
+                foundHotels++;
+                console.log(`  ✅ Found hotel column at ${j}: ${String(row[j]).trim()}`);
+              } else {
+                console.log(`  ⚠️ Ignoring column at ${j}: ${String(row[j]).trim()} (filtered out)`);
+              }
             } else if ((cellValue.includes('bus') && cellValue.includes('no')) || 
                       cellValue === 'bus no' || cellValue.includes('bus number')) {
               busNoColIndex = j;
